@@ -14,49 +14,47 @@ import java.nio.FloatBuffer;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
+import static android.opengl.Matrix.orthoM;
+
 /**
  * Created by Vegard on 28.04.2016.
  */
 public class AirHockeyRenderer implements GLSurfaceView.Renderer{
 
-    private static final String U_COLOR = "u_Color";
+    private static final String U_MATRIX = "u_Matrix";
+    private final float[] projectionMatrix = new float[16];
+    private int uMatrixLocation;
     private static final String A_POSITION = "a_Position";
     private static final int POSITION_COMPONENT_COUNT = 2;
     private static final int BYTES_PER_FLOAT = 4;
     private final FloatBuffer vertexData;
     private final Context context;
     private int program;
-    private int uColorLocation;
     private int aPositionLocation;
+
+    private static final String A_COLOR = "a_Color";
+    private static final int COLOR_COMPONENT_COUNT = 3;
+    private static final int STRIDE =
+            (POSITION_COMPONENT_COUNT + COLOR_COMPONENT_COUNT) * BYTES_PER_FLOAT;
+    private int aColorLocation;
 
     public AirHockeyRenderer(Context context) {
         this.context = context;
         float[] tableVerticesWithTriangles = {
-                // Border - Triangle 1
-                -0.6f, -0.6f,
-                0.6f,  0.6f,
-                -0.6f,  0.6f,
-
-                // Border - Triangle 2
-                -0.6f, -0.6f,
-                0.6f, -0.6f,
-                0.6f,  0.6f,
-
-                // Triangle Fan
-                0, 0,
-                -0.5f, -0.5f,
-                0.5f, -0.5f,
-                0.5f, 0.5f,
-                -0.5f, 0.5f,
-                -0.5f, -0.5f,
-
-                // Line 1
-                -0.5f, 0f,
-                0.5f, 0f,
-
-                // Mallets
-                0f, -0.25f,
-                0f,  0.25f
+            // Order of coordinates: X, Y, R, G, B
+            // Triangle Fan
+                0f, 0f, 1f, 1f, 1f,
+                -0.5f, -0.8f, 0.7f, 0.7f, 0.7f,
+                0.5f, -0.8f, 0.7f, 0.7f, 0.7f,
+                0.5f, 0.8f, 0.7f, 0.7f, 0.7f,
+                -0.5f, 0.8f, 0.7f, 0.7f, 0.7f,
+                -0.5f, -0.8f, 0.7f, 0.7f, 0.7f,
+            // Line 1
+                -0.5f, 0f, 1f, 0f, 0f,
+                0.5f, 0f, 1f, 0f, 0f,
+            // Mallets
+                0f, -0.4f, 0f, 0f, 1f,
+                0f, 0.4f, 1f, 0f, 0f
         };
         vertexData = ByteBuffer
                 .allocateDirect(tableVerticesWithTriangles.length * BYTES_PER_FLOAT)
@@ -83,14 +81,26 @@ public class AirHockeyRenderer implements GLSurfaceView.Renderer{
         }
         GLES20.glUseProgram(program);
 
-        uColorLocation = GLES20.glGetUniformLocation(program, U_COLOR);
-
         aPositionLocation = GLES20.glGetAttribLocation(program, A_POSITION);
+        aColorLocation = GLES20.glGetAttribLocation(program, A_COLOR);
 
-        vertexData.position(0); // Where to read in buffer.
+        // Bind our data, specified by the variable vertexData, to the vertex
+        // attribute at location A_POSITION_LOCATION.
+        vertexData.position(0);
         GLES20.glVertexAttribPointer(aPositionLocation, POSITION_COMPONENT_COUNT, GLES20.GL_FLOAT,
-                false, 0, vertexData);
+                false, STRIDE, vertexData);
+
         GLES20.glEnableVertexAttribArray(aPositionLocation);
+
+        // Bind our data, specified by the variable vertexData, to the vertex
+        // attribute at location A_COLOR_LOCATION.
+        vertexData.position(POSITION_COMPONENT_COUNT);
+        GLES20.glVertexAttribPointer(aColorLocation, COLOR_COMPONENT_COUNT, GLES20.GL_FLOAT,
+                false, STRIDE, vertexData);
+
+        GLES20.glEnableVertexAttribArray(aColorLocation);
+
+        uMatrixLocation = GLES20.glGetUniformLocation(program, U_MATRIX);
     }
 
 
@@ -99,6 +109,17 @@ public class AirHockeyRenderer implements GLSurfaceView.Renderer{
     public void onSurfaceChanged(GL10 glUnused, int width, int height) {
         // Set the OpenGL viewport to fill the entire surface.
         GLES20.glViewport(0, 0, width, height);
+
+        final float aspectRatio = width > height ?
+                (float) width / (float) height :
+                (float) height / (float) width;
+        if (width > height) {
+// Landscape
+            orthoM(projectionMatrix, 0, -aspectRatio, aspectRatio, -1f, 1f, -1f, 1f);
+        } else {
+// Portrait or square
+            orthoM(projectionMatrix, 0, -1f, 1f, -aspectRatio, aspectRatio, -1f, 1f);
+        }
     }
 
     @Override
@@ -106,23 +127,17 @@ public class AirHockeyRenderer implements GLSurfaceView.Renderer{
         // Clear the rendering surface.
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
-        //Draw border
-        GLES20.glUniform4f(uColorLocation, 0.0f, 0.0f, 0.0f, 0.0f);
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
+        GLES20.glUniformMatrix4fv(uMatrixLocation, 1, false, projectionMatrix, 0);
 
         //Draw table
-        GLES20.glUniform4f(uColorLocation, 1.0f, 1.0f, 1.0f, 1.0f);
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 6, 6);
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, 0, 6);
 
         //Draw line
-        GLES20.glUniform4f(uColorLocation, 1.0f, 0.0f, 0.0f, 1.0f);
-        GLES20.glDrawArrays(GLES20.GL_LINES, 12, 2);
+        GLES20.glDrawArrays(GLES20.GL_LINES, 6, 2);
 
         // Draw the first mallet blue.
-        GLES20.glUniform4f(uColorLocation, 0.0f, 0.0f, 1.0f, 1.0f);
-        GLES20.glDrawArrays(GLES20.GL_POINTS, 14, 1);
+        GLES20.glDrawArrays(GLES20.GL_POINTS, 8, 1);
         // Draw the second mallet red.
-        GLES20.glUniform4f(uColorLocation, 1.0f, 0.0f, 0.0f, 1.0f);
-        GLES20.glDrawArrays(GLES20.GL_POINTS, 15, 1);
+        GLES20.glDrawArrays(GLES20.GL_POINTS, 9, 1);
     }
 }
